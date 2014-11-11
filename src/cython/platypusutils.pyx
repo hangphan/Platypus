@@ -715,14 +715,12 @@ cdef int isHaplotypeValid(tuple variants):
     cdef int index = 0
     cdef Variant thisVar
     cdef Variant nextVar
-
     # Check the normal variant starts and ends. The variants are sorted by co-ordinate, so if
     # the end of variant[i-1] occurs after the beginning of variant[i], then something is wrong.
     # Note, that the end of variant v is actually v.refPos + len(v.removed) - len(v.added).
     for index from 0 <= index < nVariants:
 
         thisVar = variants[index]
-
         # The end of the last variant can't overlap with anything.
         if index + 1 == nVariants:
             break

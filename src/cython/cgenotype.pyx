@@ -137,8 +137,10 @@ cdef class DiploidGenotype(object):
         cdef Py_ssize_t readIndex = 0
         cdef double like1 = 0.0
         cdef double like2 = 0.0
-        cdef double* arr1 = self.hap1.alignReads(individualIndex, start, end, badReadsStart, badReadsEnd, brokenReadsStart, brokenReadsEnd, False)
-        cdef double* arr2 = self.hap2.alignReads(individualIndex, start, end, badReadsStart, badReadsEnd, brokenReadsStart, brokenReadsEnd, False)
+#        cdef double* arr1 = self.hap1.alignReads(individualIndex, start, end, badReadsStart, badReadsEnd, brokenReadsStart, brokenReadsEnd, False)
+#        cdef double* arr2 = self.hap2.alignReads(individualIndex, start, end, badReadsStart, badReadsEnd, brokenReadsStart, brokenReadsEnd, False)
+        cdef double* arr1 = self.hap1.alignReads(individualIndex, start, end, badReadsStart, badReadsEnd, brokenReadsStart, brokenReadsEnd, True)
+        cdef double* arr2 = self.hap2.alignReads(individualIndex, start, end, badReadsStart, badReadsEnd, brokenReadsStart, brokenReadsEnd, True)
         cdef double goodnessOfFitValue = 0.0
         cdef double logLike1 = 0.0
         cdef double logLike2 = 0.0

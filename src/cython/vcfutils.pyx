@@ -574,7 +574,8 @@ cdef void outputCallToVCF(dict varsByPos, dict vcfInfo, dict vcfFilter, list hap
             # we may, by now, have filtered all the overlapping variants, and so the padded variants which are
             # left should be un-padded.
             #logger.info("Variants = %s" %(variants))
-            trimLeftPadding(vcfDataLine)
+            if options.HLATyping != 1:
+                trimLeftPadding(vcfDataLine)
 
             # Don't output if the reference bases are non-canonical
             for c in vcfDataLine['ref']:

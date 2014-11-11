@@ -33,6 +33,7 @@ cdef class Variant:
         public int nAdded
         public int nRemoved
         public int varType
+        
         double indelPrior(self, FastaFile refFile, int type)
         double calculatePrior(self, FastaFile refFile)
         void addVariant(self, Variant other)

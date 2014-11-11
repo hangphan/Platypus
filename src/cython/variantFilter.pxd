@@ -13,3 +13,4 @@ cdef void filterVariantsByCoverage(dict thisWindow, bytes chrom, int windowStart
 cdef list getHaplotypesInWindow(dict window, int nReads, FastaFile refFile, int maxCoverage, int minMapQual, int minReadQual, int maxHaplotypes, int maxVariants, int maxReadLength, int verbosity, list readBuffers, options)
 cdef list padVariants(list sortedVariants, FastaFile refFile, bytes chrom)
 cdef double computeVariantReadSupportFrac(Variant variant, bamReadBuffer readBuffer)
+cdef list getAllHLAHaplotypesInRegion(bytes chrom, int windowStart, int windowEnd, FastaFile refFile, options, list variants, Haplotype refHaplotype, list readBuffers)

@@ -157,6 +157,7 @@ cdef class Variant(object):
         self.nSupportingReads = nSupportingReads
         self.hashValue = -1
 
+
     cdef double indelPrior(self, FastaFile refFile, int indel_length_and_type):
         """
         Calculate indel prior, based on sequence context

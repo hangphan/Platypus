@@ -100,17 +100,8 @@ cdef void callVariantsInWindow(dict window, options, FastaFile refFile, list rea
     if nReadsThisWindow > options.maxReads:
         logger.debug("Skipping pathalogical window %s:%s-%s with %s reads" %(chrom, windowStart, windowEnd, nReadsThisWindow))
         return
+    logger.debug("Processing window %s:%s-%s" %(chrom, windowStart, windowEnd))
 
-    if len(variants) > options.maxVariants:
-
-        if options.skipDifficultWindows:
-            logger.debug("Skipping window with %s variants" %(len(variants)))
-            return
-
-        elif options.filterVarsByCoverage:
-            #logger.debug("There are %s variants before filtering" %(len(window['variants'])))
-            filterVariantsByCoverage(window, chrom, windowStart, windowEnd, refFile, options, variants, refHaplotype, readBuffers)
-            #logger.debug("There are %s variants after filtering" %(len(window['variants'])))
 
     # Create haplotype list using all data from all samples. Always consider the reference haplotype.
     cdef list allVarHaplotypes = variantFilter.getHaplotypesInWindow(window, nReadsThisWindow, refFile, options.maxReads, options.minMapQual, options.minBaseQual, options.maxHaplotypes, options.maxVariants, options.rlen, options.verbosity, readBuffers, options)
@@ -139,6 +130,7 @@ cdef void callVariantsInWindow(dict window, options, FastaFile refFile, list rea
 
     cdef int maxEMIterations = 100
     pop.call(maxEMIterations, 1)
+
 
 ###################################################################################################
 
@@ -411,7 +403,7 @@ cdef list generateVariantsInRegion(bytes chrom, int start, int end, bamFiles, Fa
 
         # Add candidates from all samples to list
         rawBamVariants.extend(allSampleVarCandGen.getCandidates(0))
-
+        logger.info("There are %d raw variants in this region" %(len(rawBamVariants)))
         # options.rlen over-rides the data, if set, otherwise we use the longest read
         # in the data
         if longestRead > 0:
@@ -430,10 +422,10 @@ cdef list generateVariantsInRegion(bytes chrom, int start, int end, bamFiles, Fa
     if options.sourceFile:
         variantSource = variantutils.VariantCandidateReader(options.sourceFile, options)
         vcfFileVariants.extend(variantSource.Variants(chrom,start,end))
+        logger.info("There are %d variants from source file  in this region" %(len(vcfFileVariants)))
 
     # Get variants from assembler
     if options.assemble:
-
         assemRegionShift = max(100, min(1000, options.assemblyRegionSize//2))
         #assemRegionShift = max(100, min(1000, options.assemblyRegionSize//4))
         logger.debug("Assembly region windows will be tiled. Each region will start %s bases after the last one" %(assemRegionShift))
@@ -456,9 +448,12 @@ cdef list generateVariantsInRegion(bytes chrom, int start, int end, bamFiles, Fa
             #logger.debug("Assembling region %s:%s-%s (ref seq %s:%s-%s)" %(chrom, assemStart, assemEnd, chrom, refStart, refEnd))
             assemblerVariants.extend(assembleReadsAndDetectVariants(chrom, assemStart, assemEnd, refStart, refEnd, readBuffers, refSequence, options))
             #logger.debug("Variants Found by assembler in region are %s" %(assemblerVariants))
+        logger.info("There are %d assembly variants in this region" %(len(assemblerVariants)))
 
     cdef list allVarCands = rawBamVariants + vcfFileVariants + assemblerVariants
     cdef list leftNormVars = sorted( [leftNormaliseIndel(v, refFile, maxReadLength) for v in allVarCands] )
+    if options.longHaps ==1:
+        leftNormVars = sorted(allVarCands)
     cdef list filteredVariants = filterVariants(leftNormVars, refFile, maxReadLength, options.minReads, options.maxSize, options.verbosity, options)
 
     # Need to work out how to consistently report these.
@@ -552,6 +547,115 @@ cdef void callVariantsInRegion(bytes chrom, int start, int end, bamFiles, FastaF
 
 ###################################################################################################
 
+cdef void callHLAGenotypeInRegion(bytes chrom, int start, int end, bamFiles, FastaFile refFile, options, windowGenerator, outputFile, vcf, list samples, dict samplesByID, dict samplesByBAM, Population pop):
+    """
+    Given a set of BAM files, and a sensibly-sized genomic region (typically ~1MB), call variants in the specified region.
+    """
+    refFile.setCacheSequence(chrom, start-(10*options.rlen), end+(10*options.rlen))
+
+    cdef long long int contigLength = refFile.refs[chrom].SeqLength
+    cdef long long int maxContigPos = contigLength - 1
+    cdef bytes refSequenceBytes = refFile.getSequence(chrom,start, min(end+5*options.rlen, refFile.refs[chrom].SeqLength-1))
+    cdef char* refSequence = refSequenceBytes
+    cdef list readBuffers
+    cdef bamReadBuffer theReadBuffer
+    logger.info("Variant calling for HLA haplotypes in region %s:%s-%s" %(chrom, start, end))
+
+    try:
+        readBuffers = loadBAMData(bamFiles, chrom, start, end, options, samples, samplesByID, samplesByBAM, refSequence)
+
+    except Exception, e:
+        logger.error('Exception in region %s:%s-%s. Error was %s' %(chrom, start, end, e))
+        logger.warning("Region %s:%s-%s will be skipped" %(chrom, start, end))
+        return
+
+    if readBuffers is None:
+        logger.info("Skipping region %s:%s-%s as data could not be loaded" %(chrom, start, end))
+        return
+
+    cdef list variants = generateVariantsInRegion(chrom, start, end, bamFiles, refFile, options, windowGenerator, outputFile, vcf, readBuffers)
+    cdef list sortedVarList
+    cdef Haplotype hap
+    cdef Variant v
+    cdef int windowStart = start
+    cdef int windowEnd = end
+    cdef int nReadsThisRegion = 0
+    cdef int qualBinSize = options.qualBinSize
+    cdef Haplotype refHaplotype = Haplotype(chrom, start, end, (), refFile, options.rlen, options)
+    cdef int flankSize = 50
+    pop.reset()
+    
+    for theReadBuffer in readBuffers:
+        theReadBuffer.setWindowPointers(start-flankSize, end+flankSize, start, end, refSequence, qualBinSize)
+        nReadsThisRegion += (theReadBuffer.reads.windowEnd - theReadBuffer.reads.windowStart)
+
+    if nReadsThisRegion == 0 and not options.outputRefCalls:
+        if options.verbosity >= 3:
+            logger.debug("No coverage in region %s:%s-%s. Skipping" %(chrom, start, end))
+        return
+
+    if nReadsThisRegion > options.maxReads:
+        logger.debug("Skipping pathalogical window %s:%s-%s with %s reads" %(chrom, start, end, nReadsThisRegion))
+        return
+    logger.debug("Processing region %s:%s-%s" %(chrom, start, end))
+
+
+    # Create haplotype list using all data from all samples. Always consider the reference haplotype.
+    cdef list allVarHaplotypes = variantFilter.getAllHLAHaplotypesInRegion(chrom, start, end, refFile, options, variants, refHaplotype, readBuffers)
+    cdef list allUniqueHaplotypes = mergeHaplotypes([refHaplotype] + allVarHaplotypes, refFile)
+    cdef list allGenotypes = generateAllGenotypesFromHaplotypeList(allUniqueHaplotypes)
+    cdef int nUniqueHaplotypes = len(allUniqueHaplotypes)
+
+    # Write alignment scores of reads to all possible haplotypes to file 
+    writeAlignScoreToFile(chrom, start, end, refFile, options, allUniqueHaplotypes, readBuffers)
+
+    pop.setup(variants, allUniqueHaplotypes, allGenotypes, options.nInd, options.verbosity, readBuffers)
+
+    cdef int maxEMIterations = 100
+    pop.call(maxEMIterations, 1)
+    cdef dict thisWindow
+
+    if len(variants) > 0 and len(pop.variantPosteriors.keys()) > 0:
+        logger.debug("Outputing calls to vcf")
+        outputCallToVCF(pop.varsByPos, pop.vcfInfo, pop.vcfFilter, pop.haplotypes, pop.genotypes, pop.frequencies, pop.genotypeLikelihoods, pop.goodnessOfFitValues, pop.haplotypeIndexes, pop.readBuffers, pop.nIndividuals, vcf, refFile, outputFile, options, pop.variants, start, end)
+ 
+        # Need to make ref calls between variants and at start and end of windows
+        logger.debug("generating reference calls %d" %(len(pop.varsByPos.keys())))
+        logger.debug(pop.varsByPos.keys())
+        if options.outputRefCalls and len(pop.varsByPos.keys()) > 1:
+            lastPos = None
+            lastVars = None
+            logger.info("generating reference calls %s" %(pop.varsByPos.keys()>1))
+            for index,(pos,theseVars) in enumerate(pop.varsByPos.iteritems()):
+                if index > 0:
+                    logger.info("generating reference calls %d" %(index))
+                    lastVarPos = max([v.maxRefPos for v in lastVars])
+                    nextVarPos = min([v.minRefPos for v in theseVars]) + 1 # To account for VCF 1-indexing vs Variant 0-indexing
+                    logger.info("generating reference calls %d" %(index))
+                    if nextVarPos - lastVarPos > 1:
+                        for refBlockStart in xrange(lastVarPos+1, nextVarPos, options.refCallBlockSize):
+                            refBlockEnd = min(refBlockStart + options.refCallBlockSize, nextVarPos-1)
+                            if refBlockStart == refBlockEnd:
+                                 continue
+
+                            thisWindow = dict(chromosome=chrom,startPos=refBlockStart, endPos=refBlockEnd,variants=[],nVar=0)
+
+                            outputRefCall(chrom, pop, vcf, refFile, outputFile, 0, thisWindow, options, readBuffers)
+                            logger.info("Outputting this refcalls")
+                lastPos = pos
+                lastVars = theseVars
+    else:
+        if options.outputRefCalls:
+            thisWindow = dict(chromosome=chrom,startPos=start, endPos=end,variants=[],nVar=0)
+            outputRefCall(chrom, pop, vcf, refFile, outputFile, 0, thisWindow, options, readBuffers)
+
+    if options.compressReads:
+        for readBuffer in readBuffers:
+            readBuffer.recompressReadsInCurrentWindow(start, end, refSequence, options.qualBinSize, options.compressReads)
+
+###################################################################################################
+###################################################################################################
+
 cdef int sumMapQualsTimesReadLength(list readBuffers):
     """
     Compute and return the sum of mapping quality phred scores of all good-quality reads
@@ -574,7 +678,58 @@ cdef int sumMapQualsTimesReadLength(list readBuffers):
     return result
 
 ###################################################################################################
+cdef void writeAlignScoreToFile(bytes chrom, int windowStart, int windowEnd, FastaFile refFile, options, list allHaps, list readBuffers):
+    """
+    Write alignment scores of reads to haplotypes in a window to a file 
+    """
+    if options.alignScoreFile == "":
+        return
+    fo = open(options.alignScoreFile, "a")
+     # Print alignment scores of reads against haplotypes to file
+    cdef bamReadBuffer theBuffer
+    cdef double* arr
+    cdef cAlignedRead** pStartRead
+    cdef cAlignedRead** pEndRead
+    cdef Haplotype hap
+    cdef int hapIdx = 0 
+    cdef int nReadsThisInd = 0 
+    cdef int individualIndex = 0
+    cdef int readIndex = 0
+    cdef int thisLen
+    cdef double sumLK = 0
 
+
+    for individualIndex from 0 <= individualIndex < options.nInd:
+        theBuffer = readBuffers[individualIndex]
+        nReadsThisInd = theBuffer.reads.windowEnd - theBuffer.reads.windowStart
+        windowStart =  theBuffer.startBase
+        windowEnd   =  theBuffer.endBase
+        fo.write("Individual\t%d\t%d\t%d:%d-%d\n" %(individualIndex, len(allHaps), nReadsThisInd,windowStart, windowEnd))
+
+        for hapIdx, hap in enumerate(allHaps):
+            thisStr = hap.getMutatedSequence()
+            thisLen = len(thisStr)
+            fo.write("%d %d %s\n" %(hap.startPos, hap.endPos, thisStr[hap.endBufferSize:thisLen-hap.endBufferSize+1]))
+
+        for hapIdx, hap in enumerate(allHaps):
+            arr = hap.alignReads(individualIndex, theBuffer.reads.windowStart, theBuffer.reads.windowEnd, theBuffer.badReads.windowStart, theBuffer.badReads.windowEnd, theBuffer.brokenMates.windowStart, theBuffer.brokenMates.windowEnd, True)
+            arrP = []
+            for readIndex from 0 <= readIndex < nReadsThisInd:
+                arrP.append("%1.3E" %(-10*arr[readIndex]))
+                sumLK = sumLK + arr[readIndex]
+            fo.write("%s\n" %("\t".join(arrP)))
+#        mappingQual = []
+#        pStartRead = theBuffer.reads.windowStart
+#        pEndRead = theBuffer.reads.windowEnd
+#        while pStartRead != pEndRead:
+#            pRead = pStartRead[0]
+#            mappingQual.append(pRead.mapq)
+#            pStartRead +=1
+#        fo.write("%s\n" %("\t".join(map(str,mappingQual))))
+    fo.close()
+    return
+
+###################################################################################################
 def outputRefCall(bytes chrom, Population pop, vcfFile, FastaFile refFile, outputFile, int windowIndex, dict window, options, list readBuffers):
     """
     """
@@ -732,6 +887,8 @@ class PlatypusSingleProcess(object):
         self.options.originalMaxHaplotypes = self.options.maxHaplotypes
         self.options.maxHaplotypes = min(257, self.options.maxHaplotypes)
         self.options.maxGenotypes = min(33153, platypusutils.nCombinationsWithReplacement(self.options.maxHaplotypes, 2))
+        if self.options.HLATyping ==1:
+            self.options.maxGenotypes = platypusutils.nCombinationsWithReplacement(self.options.originalMaxHaplotypes, 2) 
         #self.options.maxGenotypes = 33153
         #self.options.maxHaplotypes = min(257, self.options.maxHaplotypes)
 
@@ -740,13 +897,6 @@ class PlatypusSingleProcess(object):
         logger.debug("Max genotypes = %s" %(self.options.maxGenotypes))
 
         options.nInd = len(set(self.samples))
-        
-        if options.alignScoreFile != "":
-            logger.info("Alignment scores of reads with haplotypes are written to %s" %(options.alignScoreFile))
-            fo = open(options.alignScoreFile, "w")
-            fo.write("#Alignment scores of reads against haplotypes within a each window for each sample\n")
-            fo.close()
-
 
 
     def run(self):
@@ -763,6 +913,11 @@ class PlatypusSingleProcess(object):
         self.vcf.setformat(vcfutils.vcfFormatSignature)
         self.windowGenerator = window.WindowGenerator()
 
+        if self.options.alignScoreFile!= "":
+            fo = open(self.options.alignScoreFile, "w")
+            fo.write("#Alignment scores of reads against haplotypes within a each window for each sample\n")
+            fo.close() 
+            
         if self.continuing:
             logger.info("Opening file %s for appending" %(self.fileName))
             self.outputFile = open(self.fileName, 'a')
@@ -775,6 +930,15 @@ class PlatypusSingleProcess(object):
 
         cdef Population pop = Population(self.options)
 
+        if self.options.HLATyping ==1:
+            self.options.longHaps=1
+            if self.options.sourceFile == None:
+                logger.error("No source file for HLA typing provided")
+                return
+            self.options.getVariantsFromBAMs=0
+            self.options.assemble=0
+
+
         for index,(chrom,start,end) in enumerate(self.regions):
 
             if index % 10 == 0:
@@ -784,7 +948,10 @@ class PlatypusSingleProcess(object):
             else:
                 pass
 
-            callVariantsInRegion(chrom, start, end, self.bamFiles, self.refFile, self.options, self.windowGenerator, self.outputFile, self.vcf, self.samples, self.samplesByID, self.samplesByBAM, pop)
+            if self.options.HLATyping==1:
+                callHLAGenotypeInRegion(chrom, start, end, self.bamFiles, self.refFile, self.options, self.windowGenerator, self.outputFile, self.vcf, self.samples, self.samplesByID, self.samplesByBAM, pop)
+            else:
+                callVariantsInRegion(chrom, start, end, self.bamFiles, self.refFile, self.options, self.windowGenerator, self.outputFile, self.vcf, self.samples, self.samplesByID, self.samplesByBAM, pop)
 
         if self.fileName != "-":
             self.outputFile.close()
@@ -810,3 +977,5 @@ class PlatypusMultiProcess(multiprocessing.Process):
         self.singleProcess.run()
 
 ##################################################################################################
+
+

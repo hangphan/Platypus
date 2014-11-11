@@ -144,6 +144,8 @@ cdef class Haplotype:
         self.verbosity = options.verbosity
         self.options = options
         self.lastIndividualIndex = -1
+        if options.HLATyping==1:
+            self.endBufferSize=8
 
         cdef Variant v
 
@@ -606,9 +608,11 @@ cdef double alignReadToHaplotype(cAlignedRead* read, Haplotype hap, int useMapQu
     cdef double probMapWrong = mLTOT*read.mapq  # A log value
     cdef double probMapRight = log(1.0 - exp(mLTOT*read.mapq)) # A log value
 
+    cdef int offset1 = 0
+    cdef int offset2 = 0
+
     # Arbitrary cap
     cdef double likelihoodCap = 0.0
-
     if useMapQualCap == True:
         likelihoodCap = probMapWrong
     else:
@@ -625,7 +629,25 @@ cdef double alignReadToHaplotype(cAlignedRead* read, Haplotype hap, int useMapQu
     if hap.localGapOpen == NULL:
         hap.annotateWithGapOpen()
 
+#    logger.debug("alignReads %d %d %d %d" %(readStart, hapStart, readLen, hapLen))
+
+    if useMapQualCap:
+        offset1 = hapStart - readStart 
+        offset2 = readStart + readLen - hap.startPos - hapLen
+        if offset1 <0: offset1 = 0
+        if offset2 <0: offset2 = 0
+        readStart = readStart + offset1
+        readLen = readLen - offset1 - offset2
+        readSeq   += offset1
+        readQuals += offset1
+        lenOfHapSeqToTest = readLen + 15 
+
     alignScore = mapAndAlignReadToHaplotype(readSeq, readQuals, readStart, hapStart, readLen, hapLen, hap.hapSequenceHash, hap.hapSequenceNextArray, read.hash, hapSeq, gapExtend, nucprior, hap.localGapOpen, hap.mapCounts, hap.mapCountsLen)
+
+    # Hang added this to deal with HLA
+    cdef double alignScoreThres = 100
+    if useMapQualCap == True and alignScore > alignScoreThres:
+        likelihoodCap = mLTOT* (alignScoreThres +  sqrt(alignScore - alignScoreThres)) + probMapRight 
 
     return max(mLTOT*alignScore + probMapRight, likelihoodCap)
 
