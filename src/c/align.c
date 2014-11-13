@@ -5,28 +5,32 @@
  It may not be distributed, made public, or used in other software without the permission of the copyright holder
 ******************************************************************************************************************/
 
-//#include <emmintrin.h>
+#include <emmintrin.h>
 #include <stdio.h>
 #include <assert.h>
 
+// defined here because it is used in fastAlignmentRoutine and calculateFlankScore
+const short n_score = 0*4;
+
+
+#define printxmm(label,var) \
+  printf(" %s [0]=%x %5i [1]=%x %5i [2]=%x %5i [3]=%x %5i [4]=%x %5i [5]=%x %5i [6]=%x %5i [7]=%x %5i\n", \
+    label, \
+    _mm_extract_epi16(var,0),((_mm_extract_epi16(var,0)-32768)&0xffff) >> 2, \
+    _mm_extract_epi16(var,1),((_mm_extract_epi16(var,1)-32768)&0xffff) >> 2, \
+    _mm_extract_epi16(var,2),((_mm_extract_epi16(var,2)-32768)&0xffff) >> 2, \
+    _mm_extract_epi16(var,3),((_mm_extract_epi16(var,3)-32768)&0xffff) >> 2, \
+    _mm_extract_epi16(var,4),((_mm_extract_epi16(var,4)-32768)&0xffff) >> 2, \
+    _mm_extract_epi16(var,5),((_mm_extract_epi16(var,5)-32768)&0xffff) >> 2, \
+    _mm_extract_epi16(var,6),((_mm_extract_epi16(var,6)-32768)&0xffff) >> 2, \
+    _mm_extract_epi16(var,7),((_mm_extract_epi16(var,7)-32768)&0xffff) >> 2);
+
+
 //_________________________________________________________________________________________________
 
-//inline short extract0(__m128i x) {return _mm_extract_epi16(x, 0);}
-//inline short extract1(__m128i x) {return _mm_extract_epi16(x, 1);}
-//inline short extract2(__m128i x) {return _mm_extract_epi16(x, 2);}
-//inline short extract3(__m128i x) {return _mm_extract_epi16(x, 3);}
-//inline short extract4(__m128i x) {return _mm_extract_epi16(x, 4);}
-//inline short extract5(__m128i x) {return _mm_extract_epi16(x, 5);}
-//inline short extract6(__m128i x) {return _mm_extract_epi16(x, 6);}
-//inline short extract7(__m128i x) {return _mm_extract_epi16(x, 7);}
-//
-short (*extractors[8]) (__m128i x) = {extract0,extract1,extract2,extract3,extract4,extract5,extract6,extract7};
 
-//_________________________________________________________________________________________________
-
-
-int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2, int gapextend, int nucprior,
-			 short* localgapopen) {
+int fastAlignmentRoutine(const char* seq1, const char* seq2, const char* qual2, int len1, int len2, int gapextend, int nucprior,
+			 const char* localgapopen, char* aln1, char* aln2, int* firstpos) {
 
   // seq2 is the read; the shorter of the sequences
   // no checks for overflow are done
@@ -44,7 +48,7 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
 
   const short gap_extend = gapextend*4;
   const short nuc_prior = nucprior*4;
-  const short n_score = 0*4;
+  const char traceback = (aln1 != NULL);
   const short pos_inf = 0x7800;
   const int match_label = 0;
   const int insert_label = 1;
@@ -89,8 +93,8 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
 			      _mm_set1_epi16( pos_inf ) );
 
 
-  __m128i _gap_open = _mm_set_epi16(localgapopen[7],localgapopen[6],localgapopen[5],localgapopen[4],
-				    localgapopen[3],localgapopen[2],localgapopen[1],localgapopen[0]);
+  __m128i _gap_open = _mm_set_epi16(4*localgapopen[7],4*localgapopen[6],4*localgapopen[5],4*localgapopen[4],
+				    4*localgapopen[3],4*localgapopen[2],4*localgapopen[1],4*localgapopen[0]);
 
   short _score = 0;
   short minscore = pos_inf;
@@ -118,7 +122,6 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
 
     // initialize to -0x8000
     _m1 = _mm_or_si128( _initmask2, _mm_andnot_si128( _initmask, _m1 ) );
-    // moved here, from below, to allow alignments to start with insertions or deletions
     _m2 = _mm_or_si128( _initmask2, _mm_andnot_si128( _initmask, _m2 ) );
     _m1 = _mm_min_epi16( _m1, _mm_min_epi16( _i1, _d1 ) );
 
@@ -126,12 +129,21 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
     // be y==len2-1, so that current position has y==len2; i==0 so d=0 and y=s/2
 
     if (s/2 >= len2) {
-        _score = (*extractors[s/2 - len2])(_m1);
+      switch (s/2 - len2) {
+      case 0: _score = _mm_extract_epi16( _m1, 0 ); break;
+      case 1: _score = _mm_extract_epi16( _m1, 1 ); break;
+      case 2: _score = _mm_extract_epi16( _m1, 2 ); break;
+      case 3: _score = _mm_extract_epi16( _m1, 3 ); break;
+      case 4: _score = _mm_extract_epi16( _m1, 4 ); break;
+      case 5: _score = _mm_extract_epi16( _m1, 5 ); break;
+      case 6: _score = _mm_extract_epi16( _m1, 6 ); break;
+      case 7: _score = _mm_extract_epi16( _m1, 7 ); break;
+      }
 
       if (_score < minscore) {
           minscore = _score;
           minscoreidx = s;     // point back to the match state at this entry, so as not to
-      }                      // have to store the state at s-2
+      }                        // have to store the state at s-2
     }
 
     _m1 = _mm_add_epi16( _m1, 
@@ -139,11 +151,12 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
 									   _seq1win ), 
 							  _qual2win ),
 					_seq1nqual ) );
+
     _d1 = _mm_min_epi16( _mm_add_epi16( _d2,
 					_gap_extend ),
 			 _mm_add_epi16( _mm_min_epi16( _m2,
-						       _i2 ),   // allow I->D
-					_gap_open ) );
+						       _i2 ),                // allow I->D
+					_mm_srli_si128( _gap_open, 2 ) ) );
 
     _d1 = _mm_insert_epi16( _mm_slli_si128( _d1, 
 					    2 ), 
@@ -156,6 +169,18 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
 						       _gap_open ) ),
 			 _nuc_prior );
 
+    // get back-pointers and store
+    if (traceback) {
+      _backpointers[ s ] = _mm_or_si128( _mm_or_si128( _mm_and_si128( _three, _m1 ),
+						       _mm_slli_epi16( _mm_and_si128( _three, _i1 ), 2*insert_label ) ),
+					 _mm_slli_epi16( _mm_and_si128( _three, _d1 ), 2*delete_label ) );
+    
+      // set state labels
+      _m1 = _mm_andnot_si128( _three, _m1 );
+      _i1 = _mm_or_si128( _mm_andnot_si128( _three, _i1 ), _mm_srli_epi16( _three, 1 ) );           
+      _d1 = _mm_or_si128( _mm_andnot_si128( _three, _d1 ), _three );                                
+    }
+
     //
     // S odd
     //
@@ -164,12 +189,10 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
     char c = (8 + s/2 < len1) ? seq1[ 8+(s/2) ] : 'N';
     _seq1win   = _mm_insert_epi16( _mm_srli_si128( _seq1win,   2 ), c, 8-1 );
     _seq1nqual = _mm_insert_epi16( _mm_srli_si128( _seq1nqual, 2 ), (c=='N') ? n_score : pos_inf, 8-1 );
-    _gap_open  = _mm_insert_epi16( _mm_slli_si128( _gap_open, 2 ),
-				   localgapopen[ 8 + s/2 < len1 ? 8 + s/2 : len1-1 ],
-				   0 );
+    _gap_open  = _mm_insert_epi16( _mm_srli_si128( _gap_open, 2 ),
+				   4*localgapopen[ 8 + s/2 < len1 ? 8 + s/2 : len1-1 ],
+				   8-1 );
 
-    // Moved up:
-    //_m2 = _mm_andnot_si128( _initmask, _m2 );
     _initmask = _mm_slli_si128( _initmask, 2 );
     _initmask2 = _mm_slli_si128( _initmask2, 2 );
     _m2 = _mm_min_epi16( _m2, _mm_min_epi16( _i2, _d2 ) );
@@ -177,7 +200,16 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
     // at this point, extract minimum score.  Referred-to position must
     // be y==len2-1, so that current position has y==len2; i==0 so d=0 and y=s/2
     if (s/2 >= len2) {
-        _score = (*extractors[s/2 - len2])(_m2);
+      switch (s/2 - len2) {
+      case 0: _score = _mm_extract_epi16( _m2, 0 ); break;
+      case 1: _score = _mm_extract_epi16( _m2, 1 ); break;
+      case 2: _score = _mm_extract_epi16( _m2, 2 ); break;
+      case 3: _score = _mm_extract_epi16( _m2, 3 ); break;
+      case 4: _score = _mm_extract_epi16( _m2, 4 ); break;
+      case 5: _score = _mm_extract_epi16( _m2, 5 ); break;
+      case 6: _score = _mm_extract_epi16( _m2, 6 ); break;
+      case 7: _score = _mm_extract_epi16( _m2, 7 ); break;
+      }
 
       if (_score < minscore) {
           minscore = _score;
@@ -197,19 +229,147 @@ int fastAlignmentRoutine(char* seq1, char* seq2, char* qual2, int len1, int len2
 						       _i1 ),  // allow I->D 
 					_gap_open ) );
 
-
-    _i2 = _mm_insert_epi16( _mm_srli_si128( _mm_add_epi16( _mm_min_epi16( _mm_add_epi16( _i1,
-											 _gap_extend ),
-									  _mm_add_epi16( _m1,
-											 _gap_open ) ),
-							   _nuc_prior ),
-					    2 ),
+    _i2 = _mm_insert_epi16( _mm_add_epi16( _mm_min_epi16( _mm_add_epi16( _mm_srli_si128( _i1, 2 ),
+									 _gap_extend ),
+							  _mm_add_epi16( _mm_srli_si128( _m1, 2 ),
+									 _gap_open ) ),
+					   _nuc_prior ),
 			    pos_inf,
 			    8-1 );
 
+
+    // get back-pointers and store
+    if (traceback) {
+      _backpointers[ s+1 ] = _mm_or_si128( _mm_or_si128( _mm_and_si128( _three, _m2 ),
+							 _mm_slli_epi16( _mm_and_si128( _three, _i2 ), 2*insert_label ) ),
+					   _mm_slli_epi16( _mm_and_si128( _three, _d2 ), 2*delete_label ) );
+      
+      // set state labels
+      _m2 = _mm_andnot_si128( _three, _m2 );
+      _i2 = _mm_or_si128( _mm_andnot_si128( _three, _i2 ), _mm_srli_epi16( _three, 1 ) );          
+      _d2 = _mm_or_si128( _mm_andnot_si128( _three, _d2 ), _three );                               
+    }
+
+  }
+
+  // Backtrace.
+  if (!traceback) {
+    return (minscore + 0x8000) >> 2;
+  }
+
+  s = minscoreidx;    // point to the dummy match transition
+  short i = s/2 - len2;
+  short y = len2;
+  short x = s - y;
+  short alnidx = 0;
+  short state = ((((short*)( _backpointers + s))[i]) >> (2*match_label)) & 3;
+  s -= 2;
+
+  // this is 2*y (s even) or 2*y+1 (s odd)
+  while (y > 0)
+  {
+    short newstate = ((((short*)( _backpointers + s))[i]) >> (2*state)) & 3;
+
+    if (state == match_label)
+    {
+      s -= 2;
+      aln1[alnidx] = seq1[--x];
+      aln2[alnidx] = seq2[--y];
+    }
+    else if (state == insert_label)
+    {
+      i += s&1;
+      s -= 1;
+      aln1[alnidx] = '-';
+      aln2[alnidx] = seq2[--y];
+    }
+    else
+    {
+      s -= 1;
+      i -= s&1;
+      aln1[alnidx] = seq1[--x];
+      aln2[alnidx] = '-';
+    }
+
+    state = newstate;
+    alnidx++;
+  }
+
+  aln1[alnidx] = 0;
+  aln2[alnidx] = 0;
+
+  if (firstpos) *firstpos = x;
+
+  // reverse them
+  int j;
+
+  for (i=0, j=alnidx-1; i<j; i++, j--)
+  {
+    x = aln1[i];
+    y = aln2[i];
+    aln1[i]=aln1[j];
+    aln2[i]=aln2[j];
+    aln1[j] = x;
+    aln2[j] = y;
   }
 
   return (minscore + 0x8000) >> 2;
 }
 
+
+
 //_________________________________________________________________________________________________
+
+
+int calculateFlankScore(int hapLen, int hapFlank, const char* quals, const char* localgapopen, int gapextend, int nucprior,
+			int firstpos, const char* aln1, const char* aln2) {
+
+  char prevstate = 'M';
+  int x = firstpos;     // index into haplotype
+  int y = 0;            // index into read
+  int i = 0;            // index into alignment
+  int score = 0;        // alignment score (within flank)
+  while (aln1[i]) {
+    char newstate = 'M';
+    if (aln1[i] == '-') newstate = 'I';
+    if (aln2[i] == '-') newstate = 'D';  // can't be both '-'
+    switch (newstate) {
+    case 'M':
+      if ( (aln1[i] != aln2[i]) &&
+	   (x < hapFlank || x >= hapLen - hapFlank) ) {
+	if (aln1[i] == 'N') {
+	  score += n_score / 4;
+	} else {
+	  score += quals[y];
+	}
+      }
+      ++x;
+      ++y;
+      break;
+    case 'I':
+      if (x < hapFlank || x >= hapLen - hapFlank) {
+	if (prevstate == 'I') {
+	  score += gapextend + nucprior;
+	} else {
+	  // gap open score is charged for insertions just after the corresponding base, hence the -1
+	  score += localgapopen[x-1] + nucprior;
+	}
+      }
+      ++y;
+      break;
+    case 'D':
+      if (x < hapFlank || x >= hapLen - hapFlank) {
+	if (prevstate == 'D') {
+	  score += gapextend;
+	} else {
+	  score += localgapopen[x];
+	}
+      }
+      ++x;
+      break;
+    }
+    ++i;
+    prevstate = newstate;
+  }
+  return score;
+}

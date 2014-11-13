@@ -139,7 +139,8 @@ cdef class Haplotype:
         self.startPos = max(0, startPos)
         self.endPos = min(endPos, self.refFile.refs[self.refName].SeqLength-1)
         self.maxReadLength = maxReadLength
-        self.endBufferSize = min(2*maxReadLength, 200) # Cap the buffer size at a reasonable length
+        self.endBufferSize = min(2*maxReadLength, 500) # Cap the buffer size at a reasonable length.  Alignments require reads to be aligned fully,
+                                                       # so this number limites the actual read lengths that can be usefully processed.
         self.verbosity = options.verbosity
         self.options = options
         self.lastIndividualIndex = -1
@@ -554,24 +555,29 @@ cdef class Haplotype:
         cdef int homopol = -1
         cdef int homopollen = 0
 
-        self.localGapOpen = <short*>(malloc(self.hapLen*sizeof(short)))
+        self.localGapOpen = <char*>(malloc((self.hapLen+1)*sizeof(char)))
 
         homopol = -1
         homopollen = 0
 
+        # compute local gap open penalties by applying a homopolymer model.  Fill in from the back,
+        # to help left-justify indels (though I can't see right now why this is necessary).
+        self.localGapOpen[index] = 0
         while index > 0:
             index -= 1
 
             if seq[index] == homopol:
-                homopollen += <int>(not(not(errorModel[homopollen+1])))
+                if errorModel[homopollen+1] != 0:
+                    homopollen += 1
             else:
                 homopollen = 0
 
-            self.localGapOpen[index] = 4*(<int>(errorModel[homopollen]) - (<int>'!'))
-            homopol = seq[index];
+            self.localGapOpen[index] = <char>( <int>(errorModel[homopollen]) - <int>'!' )
+            homopol = seq[index]
 
             if homopol == 'N':
                 homopol = 0
+
 
 ###################################################################################################
 
@@ -591,6 +597,7 @@ cdef double alignReadToHaplotype(cAlignedRead* read, Haplotype hap, int useMapQu
     cdef int gapExtend = 3
     cdef int nucprior = 2
     cdef int hapLen = hap.hapLen
+    cdef int hapFlank = hap.endBufferSize    # ignore contribution to score by mismatches in flank.  Set to 0 to include all mismatches
 
     cdef char* readSeq = read.seq
     cdef char* readQuals = read.qual
@@ -639,14 +646,22 @@ cdef double alignReadToHaplotype(cAlignedRead* read, Haplotype hap, int useMapQu
         readQuals += offset1
         lenOfHapSeqToTest = readLen + 15 
 
-    alignScore = mapAndAlignReadToHaplotype(readSeq, readQuals, readStart, hapStart, readLen, hapLen, hap.hapSequenceHash, hap.hapSequenceNextArray, read.hash, hapSeq, gapExtend, nucprior, hap.localGapOpen, hap.mapCounts, hap.mapCountsLen)
+    alignScore = mapAndAlignReadToHaplotype(readSeq, readQuals, readStart, hapStart, readLen, hapLen, 
+                                            hap.hapSequenceHash, hap.hapSequenceNextArray, read.hash, hapSeq, 
+                                            gapExtend, nucprior, hap.localGapOpen, 
+                                            hap.mapCounts, hap.mapCountsLen, hapFlank)
 
-    # Hang added this to deal with HLA
-    cdef double alignScoreThres = 100
-    if useMapQualCap == True and alignScore > alignScoreThres:
-        likelihoodCap = mLTOT* (alignScoreThres +  sqrt(alignScore - alignScoreThres)) + probMapRight 
+    # Hang added this to deal with HLA.  The idea is to cap the alignment score but in a smooth way.
+    # (GL: modified to make the graph differentiable at the threshold, and to allow altering the shape with a single parameter)
+    cdef double alignScoreThreshold = 100
+    cdef double shapeParameter = 0.5          # must be between 0 and 1; lower values give less abrupt truncation
+    if useMapQualCap and alignScore > alignScoreThreshold:
+        return max( likelihoodCap,
+                    mLTOT * ( alignScoreThreshold - 1 + math.pow(alignScore - alignScoreThreshold + 1, shapeParameter) / shapeParameter ) )
 
-    return max(mLTOT*alignScore + probMapRight, likelihoodCap)
+    # standard case
+    return max( likelihoodCap,
+                mLTOT*alignScore + probMapRight )
 
 ###################################################################################################
 

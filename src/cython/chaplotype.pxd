@@ -33,7 +33,7 @@ cdef class Haplotype:
         int verbosity
         int endBufferSize
         char* cHomopolQ
-        short* localGapOpen
+        char* localGapOpen
         short* hapSequenceHash # For local re-mapping of reads to haplotype
         short* hapSequenceNextArray # same
         int* mapCounts # Store counts when mapping read to this haplotype
