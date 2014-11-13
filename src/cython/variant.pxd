@@ -14,7 +14,6 @@ cdef public int ASSEMBLER_VAR
 ###################################################################################################
 
 @cython.final
-@cython.freelist(1000)
 cdef class Variant:
     cdef:
         public bytes refName
@@ -51,6 +50,8 @@ cdef class VariantCandidateGenerator:
     cdef int CIGAR_S
     cdef int CIGAR_H
     cdef int CIGAR_P
+    cdef int CIGAR_EQ
+    cdef int CIGAR_X
     cdef int minMapQual
     cdef int minBaseQual
     cdef int minFlank
