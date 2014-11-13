@@ -686,9 +686,11 @@ cdef list getAllHLAHaplotypesInRegion(bytes chrom, int windowStart, int windowEn
     cdef DiploidGenotype gt = DiploidGenotype(refHaplotype, refHaplotype)
 
     cdef list assemblerVars = []
+    cdef list allVars = []
     cdef list assemblerHaps = []
     cdef list outputHaps = []
     cdef int nAssemblerVars = 0   
+
     cdef int nHaps = 0
     cdef Haplotype thisHap
     cdef Haplotype bestHap
@@ -696,24 +698,29 @@ cdef list getAllHLAHaplotypesInRegion(bytes chrom, int windowStart, int windowEn
 
     for tempVar in variants:
         if tempVar.varSource == FILE_VAR :
-            hap = Haplotype(chrom, windowStart, windowEnd, (tempVar, ), refFile, maxReadLength, options)
-            allHaps.append(hap)
+             allVars.append(tempVar)
+#            hap = Haplotype(chrom, windowStart, windowEnd, (tempVar, ), refFile, maxReadLength, options)
+#            allHaps.append(hap)
      
-        elif tempVar.varSource == ASSEMBLER_VAR:
+        if tempVar.varSource == ASSEMBLER_VAR:
             thisVar = normaliseVar(tempVar) 
             if thisVar == None:
                 continue
             assemblerVars.append(thisVar)
+            allVars.append(thisVar)
 
     nAssemblerVars = len(assemblerVars)
-
+    nVars = len(allVars)
     #Generate all haplotypes in the region from two sources 
-    for nVarsInHap from 1<= nVarsInHap <=nAssemblerVars:
-        for varsThisHap in combinations(assemblerVars, nVarsInHap):
+#    for nVarsInHap from 1<= nVarsInHap <=nAssemblerVars:
+#        for varsThisHap in combinations(assemblerVars, nVarsInHap):
+    for nVarsInHap from 1<= nVarsInHap <= nVars:
+        for varsThisHap in combinations(allVars, nVarsInHap):
             if isHaplotypeValid(varsThisHap):       
                 hap = Haplotype(chrom, windowStart, windowEnd, varsThisHap, refFile, maxReadLength, options)
-                assemblerHaps.append(hap)
-    allHaps.extend(assemblerHaps)
+#                assemblerHaps.append(hap)
+                allHaps.append(hap)
+#    allHaps.extend(assemblerHaps)
     nHaps = len(allHaps)
 
     # If nVar is small, or we've already checked, and the number of valid haplotypes is less than the max, return all combinations
