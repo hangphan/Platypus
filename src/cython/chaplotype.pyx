@@ -143,8 +143,6 @@ cdef class Haplotype:
         self.verbosity = options.verbosity
         self.options = options
         self.lastIndividualIndex = -1
-        if options.HLATyping==1:
-            self.endBufferSize=8
 
         cdef Variant v
 
