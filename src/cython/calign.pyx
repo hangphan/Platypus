@@ -238,12 +238,13 @@ cdef int mapAndAlignReadToHaplotype(char* read, char* quals, int readStart, int 
                     hapLenForAlignment = readLen + 15 # This is fixed by the alignment algorithm
                     alignScore = fastAlignmentRoutine(haplotype + readStartInHap, read, quals, hapLenForAlignment, readLen, 
                                                       gapExtend, nucprior, localGapOpen + readStartInHap, aln1, aln2, &firstpos )
+#                    logger.debug("alignScore = %f" %(alignScore))
                     # calculate contribution to alignment score of mismatches and indels in flank, and adjust score.
                     # short circuit if calculation is unnecessary
                     if alignScore > 0 and hapLen > 0:
                         alignScore -= calculateFlankScore(hapLen, hapFlank, quals, localGapOpen, gapExtend, nucprior,
                                                           firstpos + readStartInHap, aln1, aln2 )
-
+#                    logger.debug("updated alignScore = %f" %(alignScore))
                     if alignScore < bestScore:
                         bestScore = alignScore
                         bestMappingPosition = indexOfReadIntoHap
@@ -262,6 +263,7 @@ cdef int mapAndAlignReadToHaplotype(char* read, char* quals, int readStart, int 
         readStartInHap = max(0,indexOfReadIntoHap-8)
         alignScore = fastAlignmentRoutine(haplotype + readStartInHap, read, quals, readLen+15, readLen, 
                                           gapExtend, nucprior, localGapOpen + readStartInHap, aln1, aln2, &firstpos )
+ 
         # calculate contribution to alignment score of mismatches and indels in flank, and adjust score.
         # short circuit if calculation is unnecessary
         if alignScore > 0 and hapLen > 0:
