@@ -653,7 +653,7 @@ cdef double alignReadToHaplotype(cAlignedRead* read, Haplotype hap, int useMapQu
 #    logger.debug("alignScore = %f " %(alignScore))
     # Hang added this to deal with HLA.  The idea is to cap the alignment score but in a smooth way.
     # (GL: modified to make the graph differentiable at the threshold, and to allow altering the shape with a single parameter)
-    cdef double alignScoreThreshold = 100
+    cdef double alignScoreThreshold = 50
     cdef double shapeParameter = 0.5          # must be between 0 and 1; lower values give less abrupt truncation
     if useMapQualCap and alignScore > alignScoreThreshold:
         return max( likelihoodCap,
