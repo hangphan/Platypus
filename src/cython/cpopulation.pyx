@@ -293,7 +293,7 @@ cdef class Population:
                 if nReadsThisInd == 0:
                     self.genotypeLikelihoods[individualIndex][genotypeIndex] = 1.0
                 else:
-                    logLikelihood = genotype.calculateDataLikelihood(theBuffer.reads.windowStart, theBuffer.reads.windowEnd, theBuffer.badReads.windowStart, theBuffer.badReads.windowEnd, theBuffer.brokenMates.windowStart, theBuffer.brokenMates.windowEnd, individualIndex, self.nIndividuals, self.goodnessOfFitValues[genotypeIndex])
+                    logLikelihood = genotype.calculateDataLikelihood(theBuffer.reads.windowStart, theBuffer.reads.windowEnd, theBuffer.badReads.windowStart, theBuffer.badReads.windowEnd, theBuffer.brokenMates.windowStart, theBuffer.brokenMates.windowEnd, individualIndex, self.nIndividuals, self.goodnessOfFitValues[genotypeIndex], self.options.HLATyping)
 
                     if logLikelihood > self.maxLogLikelihoods[individualIndex]:
                         self.maxLogLikelihoods[individualIndex] = logLikelihood
@@ -671,8 +671,7 @@ cdef class Population:
 
             if self.verbosity >= 3:
                 theBuffer = self.readBuffers[index]
-                logger.debug("Called genotype %s for indiviual %s" %(gt, theBuffer.sample))
-
+                logger.debug("Called genotype %s for individual %s" %(gt, theBuffer.sample))
             self.genotypeCalls.append(gt)
 
     cdef void call(self, int maxIters, int computeVCFFields):
@@ -717,5 +716,7 @@ cdef class Population:
         if computeVCFFields != 0 and len(self.variantPosteriors.keys()) > 0:
             self.computeVariantINFO()
             self.computeVariantFILTER()
+        
+
 
 ###################################################################################################

@@ -1164,7 +1164,7 @@ cdef list findBubblesInGraph(DeBruijnGraph* theGraph, double minWeight, char* re
 
                         for j in range(nBubblePaths):
                             theBubblePath = bubblePathsThisNode.elements[j]
-                            theVar = extractVarFromBubblePath(theGraph, theBubblePath, refSeq, chrom, refStart, refEnd, verbosity)
+                            theVar = extractVarFromBubblePath(theGraph, theBubblePath, refSeq, chrom, refStart , refEnd, verbosity)
 
                             #if verbosity >= 3:
                             #    logger.debug("Assembler found variant %s. Path has %s nodes, with total weight %s. Weight per node = %s" %(theVar, thePath.nNodes, thePath.weight, thePath.weight/thePath.nNodes))

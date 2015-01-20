@@ -144,6 +144,9 @@ cdef class Haplotype:
         self.verbosity = options.verbosity
         self.options = options
         self.lastIndividualIndex = -1
+    
+        self.shortReferenceSequence = self.getReferenceSequence()
+        self.shortHaplotypeSequence = None
 
         cdef Variant v
 
@@ -153,9 +156,13 @@ cdef class Haplotype:
 
             if self.minVarPos == self.maxVarPos:
                 self.maxVarPos += 1
+            self.shortHaplotypeSequence = self.getMutatedSequence()
+            self.longVar = Variant(refName, startPos, self.shortReferenceSequence , self.shortHaplotypeSequence, 0, variants[0].varSource)
         else:
             self.minVarPos = self.startPos
             self.maxVarPos = self.endPos
+            self.shortHaplotypeSequence = self.shortReferenceSequence
+            self.longVar = Variant(refName, startPos, self.shortReferenceSequence, self.shortReferenceSequence, 0, 1)
 
         self.referenceSequence = self.refFile.getSequence(self.refName, self.startPos - self.endBufferSize, self.endPos + self.endBufferSize)
 
@@ -293,6 +300,12 @@ cdef class Haplotype:
 
         return self.hash
 
+	
+    cdef char* getShortHaplotypeSequence(self):
+        if self.shortHaplotypeSequence == None:
+            return self.getMutatedSequence()
+        return self.shortHaplotypeSequence
+
     cdef double* alignReads(self, int individualIndex, cAlignedRead** start, cAlignedRead** end, cAlignedRead** badReadsStart, cAlignedRead** badReadsEnd, cAlignedRead** brokenReadsStart, cAlignedRead** brokenReadsEnd, int useMapQualCap):
         """
         """
@@ -305,10 +318,9 @@ cdef class Haplotype:
         cdef int readOverlap = 0
         cdef int readLen = 0
         cdef double* temp = NULL
-
+        
         # Either first time, or new individual
         if individualIndex != self.lastIndividualIndex:
-
             if self.likelihoodCache == NULL:
                 self.likelihoodCache = <double*>(my_malloc((totalReads+1)*sizeof(double)))
                 self.lenCache = totalReads
@@ -362,9 +374,8 @@ cdef class Haplotype:
                 self.likelihoodCache[readIndex] = score
                 brokenReadsStart += 1
                 readIndex += 1
-
+            
             self.likelihoodCache[readIndex] = 999 # End marker
-
         return self.likelihoodCache
 
     cdef inline double alignSingleRead(self, cAlignedRead* theRead, int useMapQualCap):
@@ -397,7 +408,6 @@ cdef class Haplotype:
         """
         cdef Variant v
         cdef Variant firstVar
-
         if self.haplotypeSequence is None:
 
             currentPos = self.startPos
@@ -406,10 +416,10 @@ cdef class Haplotype:
             firstVar = self.variants[0]
             bitsOfMutatedSeq = [self.refFile.getSequence(self.refName, currentPos, firstVar.refPos)]
             currentPos = firstVar.refPos
-
+            
             for v in self.variants:
-
                 # Move up to one base before the next variant, if we're not already there.
+
                 if v.refPos > currentPos:
                     bitsOfMutatedSeq.append(self.refFile.getSequence(self.refName, currentPos, v.refPos))
                     currentPos = v.refPos
@@ -421,15 +431,17 @@ cdef class Haplotype:
 
                 # Arbitrary length-changing sequence replacement
                 else:
-                    if v.refPos == currentPos:
+                    #Hang questions: why is this needed? is it for the case of deletion where we don't have a sequence to construct from?
+                    if v.refPos == currentPos and (v.nAdded==0 or v.nRemoved==0):
                         bitsOfMutatedSeq.append(self.refFile.getCharacter(self.refName, v.refPos))
                         currentPos += 1
-
+                    
                     currentPos += v.nRemoved
                     bitsOfMutatedSeq.append(v.added)
-
-            # Is this ok when currentPos == endPos?
-            if currentPos > self.endPos:
+                
+            # Is this ok when currentPos == endPos? 
+            # Hang added 1 to self.endPos to prevent error from sourceVCF
+            if currentPos > self.endPos +1:
                 logger.error("cpos = %s end pos = %s. Variants are %s" %(currentPos, self.endPos, self.variants))
 
             if currentPos < self.endPos:
@@ -606,7 +618,6 @@ cdef double alignReadToHaplotype(cAlignedRead* read, Haplotype hap, int useMapQu
     cdef int readLen = read.rlen
     cdef int mapQual = read.mapq
 
-    cdef int lenOfHapSeqToTest = readLen + 15
     cdef int alignScore = 0
 
     cdef double probMapWrong = mLTOT*read.mapq  # A log value
@@ -644,7 +655,9 @@ cdef double alignReadToHaplotype(cAlignedRead* read, Haplotype hap, int useMapQu
         readLen = readLen - offset1 - offset2
         readSeq   += offset1
         readQuals += offset1
-        lenOfHapSeqToTest = readLen + 15 
+        #logger.debug("alignReads: i have updated readStart etc by offsets %s and %s" % (offset1, offset2))
+
+    #logger.debug("alignReads: calling mapAndAlignReadToHaplotype with readseq start/len==%s %s hap start/len = %s %s  flank=%s" % (readStart,readLen,hapStart,hapLen,hapFlank))
 
     alignScore = mapAndAlignReadToHaplotype(readSeq, readQuals, readStart, hapStart, readLen, hapLen, 
                                             hap.hapSequenceHash, hap.hapSequenceNextArray, read.hash, hapSeq, 
@@ -727,4 +740,3 @@ cdef void logAlignmentOfReadToHaplotype(Haplotype hap, char* readSeq, char* read
 
     logger.debug("".join(alignmentChars) + " Score = %s" %(alignScore))
 
-###################################################################################################

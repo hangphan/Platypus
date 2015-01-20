@@ -331,7 +331,7 @@ def mergeVCFFiles(tempFileNames, finalFileName, log):
             theFile.close()
             os.remove(fileName)
 
-    log.info("%d variants found" %(len(theHeap)))
+
     # Merge-sort the output using a priority queue
     while len(theHeap) != 0:
 
@@ -422,7 +422,6 @@ def runVariantCaller(options, continuing=False):
             fileName = options.output
         else:
             fileName = options.output + "_temp_1.gz"
-
         p1 = PlatypusSingleProcess(fileName, options, regions, continuing)
         p1.run()
         if options.output != "-":
@@ -491,8 +490,9 @@ def callVariants(args):
     parser.add_option("--nCPU", dest="nCPU", help="Number of processors to use", action='store', type='int', default=1)
     parser.add_option("--parseNCBI", dest="parseNCBI", help="", type=int, action='store', default=0)
     parser.add_option("--longHaps", dest="longHaps", help="If this is set to 1, then don't trim replacement variants from input VCFs.", type='int', action='store', default=0)
-    parser.add_option("--alignScoreFile", dest="alignScoreFile", help="If this is set to a string, then alignment scores of reads to haplotypes will be writen to this file.", type='string', action='store', default="")
+    parser.add_option("--alignScoreFile", dest="alignScoreFile", help="If this is set to a string, then alignment scores of reads to haplotypes will be writen to this file. This only work when --HLATyping flag is on", type='string', action='store', default="")
     parser.add_option("--HLATyping", dest="HLATyping", help="If this is set to 1, then run HLA genotyping mode which require a source file containing HLA haplotypes", type='int', action='store', default=0)
+    parser.add_option("--flankVar", dest="flankVar", help="If this is set to 1, then look for variants in flanking region and combine that with the candidate variants in the region of interest", type='int', action='store', default=0)
     parser.add_option("--compressReads", dest="compressReads", help="If this is set to 1, then all reads will be compressed, and decompressd on demand. This will slow things down, but reduce memory usage.", type='int', action='store', default=0)
     parser.add_option("--qualBinSize", dest="qualBinSize", help="This sets the granularity used when compressing quality scores. If > 1 then quality compression is lossy", type='int', action='store', default=1)
 

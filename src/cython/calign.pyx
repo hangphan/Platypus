@@ -13,7 +13,7 @@ cimport cerrormodel
 cimport samtoolsWrapper
 
 from samtoolsWrapper cimport cAlignedRead
-
+logger = logging.getLogger("Log")
 ###################################################################################################
 
 # set the size of the hash.  Ensure that hash_size == math.pow(4,hash_nucs)
@@ -175,7 +175,6 @@ cdef int mapAndAlignReadToHaplotype(char* read, char* quals, int readStart, int 
     if readLen < hash_nucs:
         return 0
 
-    cdef int lenOfHapSeqToTest = readLen + 15
     cdef int maxcount = 0
     cdef int maxpos = 0
     cdef int i = -1
@@ -201,7 +200,9 @@ cdef int mapAndAlignReadToHaplotype(char* read, char* quals, int readStart, int 
     # have a better match than that.
     indexOfReadIntoHap = readStart - hapStart
 
+    # TODO: check that this is doing something useful...
     if strncmp(read, haplotype + indexOfReadIntoHap, readLen) == 0:
+        #logger.debug("%s: perfect match, returning score 0" % (readStart) )
         return 0
 
     # Reset counts
@@ -238,19 +239,21 @@ cdef int mapAndAlignReadToHaplotype(char* read, char* quals, int readStart, int 
                     hapLenForAlignment = readLen + 15 # This is fixed by the alignment algorithm
                     alignScore = fastAlignmentRoutine(haplotype + readStartInHap, read, quals, hapLenForAlignment, readLen, 
                                                       gapExtend, nucprior, localGapOpen + readStartInHap, aln1, aln2, &firstpos )
-#                    logger.debug("alignScore = %f" %(alignScore))
+                    #logger.debug("alignScore = %f" %(alignScore))
                     # calculate contribution to alignment score of mismatches and indels in flank, and adjust score.
                     # short circuit if calculation is unnecessary
+		    ##DEBUG
                     if alignScore > 0 and hapLen > 0:
                         alignScore -= calculateFlankScore(hapLen, hapFlank, quals, localGapOpen, gapExtend, nucprior,
                                                           firstpos + readStartInHap, aln1, aln2 )
-#                    logger.debug("updated alignScore = %f" %(alignScore))
+                    #logger.debug("updated alignScore = %f  firstpos = %s" %(alignScore, firstpos))
                     if alignScore < bestScore:
                         bestScore = alignScore
                         bestMappingPosition = indexOfReadIntoHap
 
                         # Short-circuit this loop if we find an exact match
                         if bestScore == 0:
+                            #logger.debug("%s: found exact match, short circuiting" % (readStart))
                             return bestScore
 
     # Now try original mapping position. If the read is past the end of the haplotype then
@@ -273,6 +276,8 @@ cdef int mapAndAlignReadToHaplotype(char* read, char* quals, int readStart, int 
         if alignScore < bestScore:
             bestScore = alignScore
             bestMappingPosition = indexOfReadIntoHap
+
+    #logger.debug("%s: alignScore = %s  mappingposition = %s" % (readStart, bestScore, bestMappingPosition))
 
     free(aln1)
     free(aln2)
