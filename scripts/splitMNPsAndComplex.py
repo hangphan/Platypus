@@ -31,15 +31,42 @@ def splitMAVariant(chrom, pos, theId, ref, alts, qual, filters, info, theRest):
     variant, and return a list of strings representing the same record split into
     individual SNPs.
     """
-    splitVars = set() # Store pos, ref, alt
+    
+    splitVars = {} # Store pos, ref, alt
+    lenVar = len(ref)
+    for index in range(lenVar):
+        refBase = ref[index]
+        altBases = []
+        for alt in alts:
+            altBases.append(alt[index])
+        if len(set(altBases)) ==1 and refBase in set(altBases):
+            continue
+        splitVars[(pos + index, refBase)] = altBases
+                    
+    cols = theRest.split()
+    for (thisPos, refBase) in sorted(splitVars.keys()):
+        allUniqAltBases = [refBase] + sorted(list(set(splitVars[(thisPos, refBase)]).difference(set(refBase))))
+        allAltBases = splitVars[(thisPos, refBase)]
+        splitVars[(thisPos, refBase)] = allUniqAltBases[1:]
+        newRest = [cols[0]]
+        for sample in cols[1:]:
+            newField = sample.split(":")
+            gt1 = newField[0][0]
+            gt2 = newField[0][2]
+            altBases = ['', '']
+            if gt1 != '.':
+                gt1 = int(newField[0][0]) -1
+                altBases[0] = allAltBases[gt1]
+                gt1 = allUniqAltBases.index(altBases[0]) 
+            if gt2 != '.':
+                gt2 = int(newField[0][2]) -1
+                altBases[1] = allAltBases[gt2]
+                gt2 = allUniqAltBases.index(altBases[1]) 
+            newField[0] = '/'.join(map(str,[gt1, gt2]))
+            newRest.append( ":".join(newField))
+        yield "\t".join([chrom, str(thisPos), theId, refBase, ','.join(splitVars[(thisPos, refBase)]), qual, filters, "%s;%s" %(info,"FromComplex"), '\t'.join(newRest)])
 
-    for alt in alts:
-        for index,(refBase,altBase) in enumerate(zip(ref,alt)):
-            if refBase != altBase:
-                splitVars.add( (pos + index, refBase, altBase) )
 
-    for thePos,theRef,theAlt in sorted(splitVars):
-        yield "\t".join([chrom, str(thePos), theId, theRef, theAlt, qual, filters, "%s;%s" %(info,"FromComplex"), theRest])
 
 ###################################################################################################
 
